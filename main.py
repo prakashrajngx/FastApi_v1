@@ -70,13 +70,12 @@ routes_info = [
     {"module": "hold.routes", "prefix": "/fastapi/holds", "tags": ["holds"]},
     {"module": "SalesOrder.routes", "prefix": "/fastapi/salesorders", "tags": ["salesorders"]},
     {"module": "creditbill.routes", "prefix": "/fastapi/creditbills", "tags": ["creditbills"]},
-    {"module": "yesconVariance.routes", "prefix": "/fastapi/yesconvariances", "tags": ["yesconvariances"]},
-    {"module": "yesConLeadCompanyDetails.routes", "prefix": "/fastapi/yesconcompanys", "tags": ["yesconcompanys"]},
     {"module": "kotTableStatus.routes", "prefix": "/fastapi/kottablesstatus", "tags": ["kottablesstatus"]},
     {"module": "getBill.routes", "prefix": "/fastapi/yourbill", "tags": ["getbills"]},
     {"module": "sections.routes", "prefix": "/fastapi/sections", "tags": ["sections"]},
     {"module": "Table.routes", "prefix": "/fastapi/tables", "tags": ["tables"]},
     {"module": "deviceCode.routes", "prefix": "/fastapi/devicecode", "tags": ["devicecode"]},
+    {"module": "warehouseItems.routes", "prefix": "/fastapi/warehouseitems", "tags": ["warehouseitems"]},
     # {"module": "birthdaycakeitem.routes", "prefix": "/fastapi/birthdaycakeitems", "tags": ["birthdaycakeitems"]},
     # Purchase-related routes
     {"module": "vendortype.routes", "prefix": "/fastapi/vendortypes", "tags": ["vendortypes"]},
@@ -118,7 +117,7 @@ routes_info = [
     {"module": "kraSheet.routes", "prefix": "/fastapi/krasheets", "tags": ["KRA Sheet"]},
     {"module": "prayervideo.routes", "prefix": "/fastapi/prayervideos", "tags": ["Prayer Video"]},
     {"module": "BranchDisplay.routes", "prefix": "/fastapi/branchdisplays", "tags": ["Branch Display"]},
-    {"module": "CleaningReport.routes", "prefix": "/fastapi/cleaningreports", "tags": ["Cleaning Report"]},
+    {"module": "cleaningreport.routes", "prefix": "/fastapi/cleaningreports", "tags": ["Cleaning Report"]},
     {"module": "VideosApi.routes", "prefix": "/fastapi/davideos", "tags": ["davideos"]},
     # e-commerce
     {"module": "ecommersAddress.routes", "prefix": "/fastapi/webaddress", "tags": ["Webaddress"]},
@@ -132,6 +131,7 @@ routes_info = [
     {"module": "ecommerscustomerphotos.routes", "prefix": "/fastapi/webcustomerphotos", "tags": ["Webcustomerphotos"]},
     {"module": "ecommersofferslider.routes", "prefix": "/fastapi/webofferslider", "tags": ["Webofferslider"]},
     {"module": "ecommerspromoslider.routes", "prefix": "/fastapi/webpromoslider", "tags": ["Webpromoslider"]},
+    {"module": "ecommerceVideoSlider.routes", "prefix": "/fastapi/webvideoslider", "tags": ["webvideoslider"]},
     # Audio
     {"module": "audio.routes", "prefix": "/fastapi/audios", "tags": ["audios"]},
     # BillDesk
@@ -153,7 +153,7 @@ def safe_include_router(route_info: dict):
         module = importlib.import_module(module_name)
         router = getattr(module, "router")
         app.include_router(router, prefix=prefix, tags=tags)
-        #logger.info(f"Included router from {module_name} with prefix {prefix}")
+        logger.info(f"Included router from {module_name} with prefix {prefix}")
     except Exception as e:
         logger.error(f"Failed to include router from {module_name}: {e}")
 
@@ -173,7 +173,7 @@ async def create_indexes():
         await db["branchwiseitem"].create_index([("varianceName", 1)])
         await db["branchwiseitem"].create_index([("branchId", 1)])
         await db["variances"].create_index([("varianceName", 1)])
-        #logger.info("Indexes created successfully.")
+        logger.info("Indexes created successfully.")
     except Exception as e:
         logger.error(f"Failed to create indexes: {e}")
 

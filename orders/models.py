@@ -30,7 +30,7 @@ class Diningorder(BaseModel):
     seat: Optional[str] = None
     date: Optional[str] = None
     time: Optional[str] = None
-    
+    customerPhoneNumber: Optional[str] = "No Number"
     preinvoiceTime: Optional[str] = None
     waiter: Optional[str] = None
     deviceId: Optional[str] = None
@@ -62,7 +62,7 @@ class DiningorderCreate(BaseModel):
     seat: Optional[str] = None
     date: Optional[str] = None
     time: Optional[str] = None
-    
+    customerPhoneNumber: Optional[str] = "No Number"
     preinvoiceTime: Optional[str] = None
     waiter: Optional[str] = None
     deviceId: Optional[str] = None
@@ -94,7 +94,7 @@ class DiningorderUpdate(BaseModel):
     seat: Optional[str] = None
     date: Optional[str] = None
     time: Optional[str] = None
-
+    customerPhoneNumber: Optional[str] = "No Number"
     preinvoiceTime: Optional[str] = None
     waiter: Optional[str] = None
     deviceId: Optional[str] = None

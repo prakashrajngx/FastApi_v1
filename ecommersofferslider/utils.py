@@ -7,7 +7,7 @@ COMPRESSED_IMAGE_DIR = "/var/www/vhosts/yenerp.com/httpdocs/share/upload/compres
 
 def get_webofferslider_collection():
     client = MongoClient("mongodb://admin:YenE580nOOUE6cDhQERP@194.233.78.90:27017/admin?appName=mongosh+2.1.1&authSource=admin&authMechanism=SCRAM-SHA-256&replicaSet=yenerp-cluster")
-    db = client["test"]  # Adjust database name
+    db = client["reactfluttertest"]  # Adjust database name
     return db['webofferslider']  
 
 def get_public_url(file_path: str) -> str:

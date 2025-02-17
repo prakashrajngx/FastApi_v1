@@ -1,19 +1,79 @@
 import io
+import os
 from typing import List
 from fastapi import APIRouter, HTTPException, File, UploadFile
 from bson import ObjectId
-from fastapi.responses import StreamingResponse
+from fastapi.responses import FileResponse, StreamingResponse
+from PIL import Image
+from ftplib import FTP
 from .models import webpromotionalcard, webpromotionalcardpost
-from .utils import get_card_collection  # Your utility function for MongoDB collection
-from .utils import get_image_collection
+from .utils import get_card_collection, get_image_collection
 
-# Get the MongoDB collection using the utility function
+# Get the MongoDB collections
 collection = get_card_collection()
 image_collection = get_image_collection()
 
+# FTP Configuration
+FTP_HOST = "194.233.78.90"
+FTP_USER = "yenerp.com_thys677l7kc"
+FTP_PASSWORD = "PUTndhivxi6x94^%"
+FTP_UPLOAD_DIR = "/httpdocs/share/upload/ecommerce/promocard"
+BASE_URL = "https://yenerp.com/share/upload"
 
-# Create an APIRouter instance
+# Local temp folder for processing
+LOCAL_UPLOAD_FOLDER = "./temp_uploads"
+os.makedirs(LOCAL_UPLOAD_FOLDER, exist_ok=True)
+
+# Initialize router
 router = APIRouter()
+
+def compress_image(image_bytes: bytes, max_size: int = 800) -> bytes:
+    """Compresses an image, resizes it, and converts to WebP format."""
+    image = Image.open(io.BytesIO(image_bytes))
+    image = image.convert("RGB")  # Ensure compatibility
+
+    # Resize if larger than max_size
+    width, height = image.size
+    if width > max_size or height > max_size:
+        image.thumbnail((max_size, max_size))
+
+    # Save as WebP with compression
+    compressed_io = io.BytesIO()
+    image.save(compressed_io, format="WebP", quality=70)  # WebP for better compression
+    return compressed_io.getvalue()
+
+async def upload_to_ftp(file_path: str, remote_filename: str):
+    """Uploads a file to the FTP server and creates the directory if needed."""
+    try:
+        ftp = FTP()
+        ftp.set_pasv(True)
+        ftp.connect(FTP_HOST, 21, timeout=10)
+        ftp.login(FTP_USER, FTP_PASSWORD)
+
+        # Ensure the target directory exists
+        directories = FTP_UPLOAD_DIR.strip('/').split('/')
+        current_path = ""
+
+        for directory in directories:
+            current_path += f"/{directory}"
+            try:
+                ftp.cwd(current_path)  # Try to enter directory
+            except Exception:
+                ftp.mkd(current_path)  # Create if doesn't exist
+                ftp.cwd(current_path)
+
+        # Open the file and upload it
+        with open(file_path, "rb") as f:
+            ftp.storbinary(f"STOR {remote_filename}", f)
+
+        ftp.quit()
+
+        return f"{BASE_URL}/ecommerce/promocard/{remote_filename}"
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"FTP upload failed: {str(e)}")
+
+os.makedirs(LOCAL_UPLOAD_FOLDER, exist_ok=True)
 
 # Route to create a new web promotional card
 @router.post("/post", response_model=dict)
@@ -158,71 +218,114 @@ async def upload_image(detail_id: str, file: UploadFile = File(...)):
         if not item:
             raise HTTPException(status_code=404, detail="Item not found")
 
-        # Read the uploaded file
+        # Read and compress the uploaded file
         file_content = await file.read()
+        compressed_image = compress_image(file_content)
 
-        # Store the image in the new image collection
+        # Create a temporary file
+        file_extension = "webp"  # Save as WebP format
+        temp_filename = f"{detail_id}.{file_extension}"
+        temp_path = os.path.join(LOCAL_UPLOAD_FOLDER, temp_filename)
+
+        # Save compressed image to temp path
+        with open(temp_path, "wb") as temp_file:
+            temp_file.write(compressed_image)
+
+        # Upload to FTP
+        image_url = await upload_to_ftp(temp_path, temp_filename)
+
+        # Store image URL in MongoDB instead of binary data
         image_document = {
             "detail_id": ObjectId(detail_id),  # Link to the promotional card
-            "image": file_content  # Image content as binary
+            "image_url": image_url  # Store only the image URL
         }
+        image_collection.insert_one(image_document)
 
-        # Insert the image document into the image collection
-        image_result = image_collection.insert_one(image_document)
+        # Delete local temp file
+        os.remove(temp_path)
 
-        # Return success message
-        return {"message": f"Image uploaded successfully for item {detail_id}", "image_id": str(image_result.inserted_id)}
+        return {"message": "Image uploaded successfully", "image_url": image_url}
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error uploading image: {str(e)}")
 
 
-
-# Route to get an image for a web promotional card
 @router.get("/get_image/{detail_id}")
 async def get_image(detail_id: str):
     try:
-        # Fetch the image document from the image collection
+        # Convert detail_id to ObjectId for MongoDB lookup
         image_item = image_collection.find_one({"detail_id": ObjectId(detail_id)})
-
-        if not image_item or "image" not in image_item:
+        
+        if not image_item or "image_url" not in image_item:
             raise HTTPException(status_code=404, detail="Image not found for this item")
 
-        # Get the image content
-        image_content = image_item["image"]
+        # Extract filename from image URL
+        filename = image_item["image_url"].split("/")[-1]
+        local_path = os.path.join(LOCAL_UPLOAD_FOLDER, filename)
 
-        # Return the image as a streaming response
-        return StreamingResponse(io.BytesIO(image_content), media_type="image/jpeg")
+        # Check if the file exists locally, otherwise download from FTP
+        if not os.path.exists(local_path):
+            try:
+                ftp = FTP()
+                ftp.set_pasv(True)
+                ftp.connect(FTP_HOST, 21, timeout=10)
+                ftp.login(FTP_USER, FTP_PASSWORD)
+                ftp.cwd(FTP_UPLOAD_DIR)
+
+                with open(local_path, "wb") as f:
+                    ftp.retrbinary(f"RETR " + filename, f.write)
+
+                ftp.quit()
+            except Exception as ftp_error:
+                raise HTTPException(status_code=500, detail=f"FTP download failed: {str(ftp_error)}")
+
+        # Return the actual image file
+        return FileResponse(local_path, media_type="image/webp")
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error fetching image: {str(e)}")
+
     
 
 # Route to edit/update an image for a web promotional card
 @router.put("/edit_image/{detail_id}")
 async def edit_image(detail_id: str, file: UploadFile = File(...)):
     try:
-        # Fetch the image document from the image collection
+        # Fetch the image document from MongoDB
         image_item = image_collection.find_one({"detail_id": ObjectId(detail_id)})
 
         if not image_item:
             raise HTTPException(status_code=404, detail="Image not found for this item")
 
-        # Read the new uploaded file
+        # Read and compress the new uploaded file
         new_file_content = await file.read()
+        compressed_image = compress_image(new_file_content)
 
-        # Update the image content in the image collection
+        # Create a temporary file
+        file_extension = "webp"
+        temp_filename = f"{detail_id}.{file_extension}"
+        temp_path = os.path.join(LOCAL_UPLOAD_FOLDER, temp_filename)
+
+        # Save compressed image to temp path
+        with open(temp_path, "wb") as temp_file:
+            temp_file.write(compressed_image)
+
+        # Upload to FTP
+        new_image_url = await upload_to_ftp(temp_path, temp_filename)
+
+        # Update image URL in MongoDB
         update_result = image_collection.update_one(
             {"detail_id": ObjectId(detail_id)},
-            {"$set": {"image": new_file_content}}
+            {"$set": {"image_url": new_image_url}}
         )
 
         if update_result.matched_count == 0:
             raise HTTPException(status_code=500, detail="Failed to update the image")
 
-        return {"message": "Image successfully updated"}
+        # Delete local temp file
+        os.remove(temp_path)
+
+        return {"message": "Image successfully updated", "new_image_url": new_image_url}
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error updating image: {str(e)}")
-
-

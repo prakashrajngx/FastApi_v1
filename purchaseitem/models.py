@@ -5,6 +5,7 @@ from typing import List, Optional,Any
 
 class PurchaseItem(BaseModel):
     purchaseitemId: Optional[str] = None  # Define _id field explicitly
+    itemCode:Optional[str] =None
     itemName: Optional[str] = None
     purchasecategoryName:Optional[str]=None
     purchasesubcategoryName: Optional[Any] = None
@@ -31,6 +32,7 @@ class PurchaseItem(BaseModel):
 
 class PurchaseItemPost(BaseModel):
     itemName: Optional[str] = None
+    itemCode:Optional[str] =None
     purchasecategoryName:Optional[str]=None
     purchasesubcategoryName: Optional[Any] = None
     itemgroupName: Optional[str] = None

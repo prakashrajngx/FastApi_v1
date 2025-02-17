@@ -32,7 +32,7 @@ class ProductionEntry(BaseModel):
     weight: Optional[List[float]] = None
     qty: Optional[List[int]] = None
     amount: Optional[List[float]] = None
-    totalAmount: Optional[str] = None
+    totalAmount: Optional[Any] = None
     warehouseName: Optional[str] = None
     date: Optional[datetime] = None  # ISO 8601 formatted datetime
     reason: Optional[str] = None

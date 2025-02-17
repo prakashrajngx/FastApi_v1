@@ -23,7 +23,8 @@ from bson import ObjectId
 from motor.motor_asyncio import AsyncIOMotorClient
 
 from orderType.utils import get_orderType_collection
-from .models import BranchwiseItem, BranchwiseItemPost, ItemUpdate,BranchwiseItemPatch
+from wareHouse.utils import get_wareHouse_collection
+from .models import WarehouseItem, WarehouseItemUpdate, WarehouseItemPost,WarehouseItemPatch
 import pandas as pd
 import io
 from pymongo import ReturnDocument, UpdateOne
@@ -55,14 +56,14 @@ router = APIRouter()
 mongo_client = AsyncIOMotorClient("mongodb://admin:YenE580nOOUE6cDhQERP@194.233.78.90:27017/admin?appName=mongosh+2.1.1&authSource=admin&authMechanism=SCRAM-SHA-256&replicaSet=yenerp-cluster")
 db = mongo_client["reactfluttertest"]
 
-item_collection = db["branchwiseitem"]
+warehouse_item_collection = db["warehouseitem"]
 
-branchwiseitem_collection = db["branchwiseitem"]
+warehouseitem_collection = db["warehouseitem"]
 
 
 @router.post("/", response_model=str,status_code=status.HTTP_201_CREATED)
-async def create_item(item: BranchwiseItemPost):
-    result = await item_collection.insert_one(item.dict())
+async def create_item(item: WarehouseItemPost):
+    result = await warehouse_item_collection.insert_one(item.dict())
     return str(result.inserted_id)
 
 
@@ -71,7 +72,7 @@ async def create_item(item: BranchwiseItemPost):
 
 
 
-branchwise_items_collection = db["branchwiseitem"]
+warehouse_item_collection = db["warehouseitem"]
 variances_collection = db["variances"]
 items_collection23 = db["items"]  # Items collection
 
@@ -98,7 +99,7 @@ async def get_items_by_branch_or_all(branch_name: Optional[str] = None):
 
     # Fetch items logic (pseudo-code)
     branchwise_items = (
-        await branchwise_items_collection.find(branchwise_items_query)
+        await warehouse_item_collection.find(branchwise_items_query)
         .limit(40)
         .to_list(None)
     )
@@ -215,7 +216,7 @@ async def upload_csv(file: UploadFile = File(...)):
         # Process records and insert into the database
         branchwise_items_data = df.to_dict(orient="records")
         if branchwise_items_data:
-            result = await branchwise_items_collection.insert_many(
+            result = await warehouse_item_collection.insert_many(
                 branchwise_items_data
             )
             inserted_ids = [str(id) for id in result.inserted_ids]
@@ -230,7 +231,7 @@ async def upload_csv(file: UploadFile = File(...)):
 
 
 @router.patch("/update-item/{item_name}")
-async def update_item_by_name(item_name: str, item_update: ItemUpdate):
+async def update_item_by_name(item_name: str, item_update: WarehouseItemUpdate):
     query = {"itemName": item_name}
     update_data = {
         "$set": {
@@ -238,12 +239,12 @@ async def update_item_by_name(item_name: str, item_update: ItemUpdate):
         }
     }
 
-    result = await branchwise_items_collection.update_one(query, update_data)
+    result = await warehouse_item_collection.update_one(query, update_data)
     if result.modified_count == 0:
         raise HTTPException(status_code=404, detail="Item not found or no update made")
 
-    updated_item = await branchwise_items_collection.find_one(query)
-    updated_item["branchwiseItemId"] = str(updated_item.pop("_id"))
+    updated_item = await warehouse_item_collection.find_one(query)
+    updated_item["warehouseItemId"] = str(updated_item.pop("_id"))
     return updated_item
 
 
@@ -261,7 +262,7 @@ class PyObjectId(ObjectId):
         return str(v)
 
 
-class BranchwiseItem(BaseModel):
+class WarehouseItems(BaseModel):
     id: str = Field(..., alias="_id")
     varianceitemCode: Optional[str]= None
     itemName: Optional[str]= None
@@ -292,8 +293,8 @@ class BranchwiseItem(BaseModel):
 # Utility function to fetch branch alias names locally
 async def fetch_branch_alias_names_locally() -> List[str]:
     try:
-        branch_collection = get_branch_collection()
-        branches = branch_collection.find()
+        warehouse_collection = get_wareHouse_collection()
+        branches = warehouse_collection.find()
         return [branch['aliasName'] for branch in branches if 'aliasName' in branch]
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"An error occurred while fetching branch data: {exc}")
@@ -321,27 +322,27 @@ async def upload_csv(
 
     if replace:
         # Delete all existing data and insert new data
-        await branchwise_items_collection.delete_many({})
-        await branchwise_items_collection.insert_many(new_data)
+        await warehouse_item_collection.delete_many({})
+        await warehouse_item_collection.insert_many(new_data)
     elif merge:
         # Fetch existing data from MongoDB
-        existing_data = await branchwise_items_collection.find().to_list(None)
+        existing_data = await warehouse_item_collection.find().to_list(None)
         existing_data_dict = {item['_id']: item for item in existing_data}
 
         for record in new_data:
             record_id = record.get('_id')
             if record_id in existing_data_dict:
                 # Update existing record
-                await branchwise_items_collection.update_one(
+                await warehouse_item_collection.update_one(
                     {'_id': ObjectId(record_id)},
                     {'$set': record}
                 )
             else:
                 # Insert new record
-                await branchwise_items_collection.insert_one(record)
+                await warehouse_item_collection.insert_one(record)
     else:
         # Insert new data without merging or replacing
-        await branchwise_items_collection.insert_many(new_data)
+        await warehouse_item_collection.insert_many(new_data)
 
     return {"message": "CSV uploaded successfully", "columns": df.columns.tolist()}
 
@@ -372,13 +373,13 @@ async def get_all_data(
         ]
 
     # Count total items for pagination metadata
-    total_items = await branchwise_items_collection.count_documents(query_filter)
+    total_items = await warehouse_item_collection.count_documents(query_filter)
 
     # Calculate the number of items to skip
     skip = (page - 1) * limit
 
     # Fetch data with pagination and search filter
-    data = await branchwise_items_collection.find(query_filter).skip(skip).limit(limit).to_list(None)
+    data = await warehouse_item_collection.find(query_filter).skip(skip).limit(limit).to_list(None)
 
     if not data:
         raise HTTPException(status_code=404, detail="No data found")
@@ -391,7 +392,7 @@ async def get_all_data(
         # Base item transformation
         transformed_item = {
             "item": {
-                "branchwiseItemId": str(item.get("_id")),
+                "warehouseItemId": str(item.get("_id")),
                 "itemName": item.get("itemName"),
                 "category": item.get("category"),
                 "subcategory": item.get("subCategory"),
@@ -490,7 +491,7 @@ async def get_all_data(
 @router.get("/getbyid/{item_id}")
 async def get_item(item_id: str):
     try:
-        item = await branchwise_items_collection.find_one({"_id": ObjectId(item_id)})
+        item = await warehouse_item_collection.find_one({"_id": ObjectId(item_id)})
         if not item:
             raise HTTPException(status_code=404, detail="Item not found.")
         
@@ -499,7 +500,7 @@ async def get_item(item_id: str):
         variance_name = item.get("varianceName")
         transformed_item = {
             "item": {
-                "branchwiseItemId": str(item.get("_id")),
+                "warehouseItemId": str(item.get("_id")),
                 "itemName": item.get("itemName"),
                 "varianceName": item.get("varianceName"),
                 "category": item.get("category"),
@@ -580,7 +581,7 @@ async def delete_item(item_id: str):
             raise HTTPException(status_code=400, detail="Invalid item ID format.")
 
         # Attempt to delete the item
-        result = await branchwise_items_collection.delete_one({"_id": ObjectId(item_id)})
+        result = await warehouse_item_collection.delete_one({"_id": ObjectId(item_id)})
 
         # Check if the item was deleted
         if result.deleted_count == 0:
@@ -597,7 +598,7 @@ async def delete_item(item_id: str):
 async def export_csv():
     try:
         # Fetch all data from MongoDB
-        data = await branchwise_items_collection.find().to_list(None)
+        data = await warehouse_item_collection.find().to_list(None)
 
         if not data:
             raise HTTPException(status_code=404, detail="No data found to export.")
@@ -635,7 +636,7 @@ async def export_csv():
 async def export_csv_headers():
     try:
         # Fetch one document from MongoDB to infer columns
-        sample_document = await branchwise_items_collection.find_one()
+        sample_document = await warehouse_item_collection.find_one()
 
         if not sample_document:
             raise HTTPException(status_code=404, detail="No data found to infer headers.")
@@ -687,7 +688,7 @@ async def add_item(item_data: Dict[str, Any] = Body(...)):
         item_data["_id"] = ObjectId()  # Automatically generate a new ObjectId for the item
 
         # Insert the item into the MongoDB collection
-        result = await branchwise_items_collection.insert_one(item_data)
+        result = await warehouse_item_collection.insert_one(item_data)
 
         # Return the inserted item's ID
         return {"message": "Item added successfully", "itemId": str(result.inserted_id)}
@@ -710,7 +711,7 @@ async def add_item(item_data: Dict[str, Any] = Body(...)):
 async def get_next_varianceitemcode():
     try:
         # Fetch all varianceitemCodes from the collection
-        codes = await branchwise_items_collection.find({}, {"variances.varianceitemCode": 1, "_id": 0}).to_list(None)
+        codes = await warehouse_item_collection.find({}, {"variances.varianceitemCode": 1, "_id": 0}).to_list(None)
         
         # Extract numeric part of the code and find the maximum value
         max_code = 0
@@ -759,17 +760,17 @@ async def get_all_data(
         query_filter["category"] = category
 
     # Count total items for pagination metadata
-    total_items = await branchwise_items_collection.count_documents(query_filter)
+    total_items = await warehouse_item_collection.count_documents(query_filter)
 
     if paginate:
         # Calculate the number of items to skip
         skip = (page - 1) * limit
 
         # Fetch data with pagination and search filter
-        data = await branchwise_items_collection.find(query_filter).skip(skip).limit(limit).to_list(None)
+        data = await warehouse_item_collection.find(query_filter).skip(skip).limit(limit).to_list(None)
     else:
         # Fetch all data without pagination
-        data = await branchwise_items_collection.find(query_filter).to_list(None)
+        data = await warehouse_item_collection.find(query_filter).to_list(None)
 
     if not data:
         raise HTTPException(status_code=404, detail="No data found")
@@ -778,7 +779,7 @@ async def get_all_data(
         # Base item transformation
         transformed_item = {
             "item": {
-                "branchwiseItemId": str(item.get("_id")),
+                "warehouseItemId": str(item.get("_id")),
                 "itemName": item.get("itemName"),
                 "category": item.get("category"),
                 "subcategory": item.get("subCategory"),
@@ -879,7 +880,7 @@ async def get_all_data(
 
     # Fetch all unique category names
     category_pipeline = [{"$group": {"_id": "$category"}}]
-    categories = await branchwise_items_collection.aggregate(category_pipeline).to_list(None)
+    categories = await warehouse_item_collection.aggregate(category_pipeline).to_list(None)
     category_names = [category["_id"] for category in categories]
 
     # Calculate total pages only if pagination is enabled
@@ -911,7 +912,7 @@ async def get_all_data(
     if category:
         query_filter["category"] = category
 
-    data = await branchwise_items_collection.find(query_filter).to_list(None)
+    data = await warehouse_item_collection.find(query_filter).to_list(None)
 
     if not data:
         raise HTTPException(status_code=404, detail="No data found")
@@ -923,7 +924,7 @@ async def get_all_data(
 
         transformed_item = {
             "item": {
-                "branchwiseItemId": str(item.get("_id")),
+                "warehouseItemId": str(item.get("_id")),
                 "itemName": item.get("itemName"),
                 "category": item.get("category"),
                 "subcategory": item.get("subCategory"),
@@ -992,7 +993,7 @@ async def get_all_data(
             transformed_data[item_name]["variance"].update(transformed_item["variance"])
 
     category_pipeline = [{"$group": {"_id": "$category"}}]
-    categories = await branchwise_items_collection.aggregate(category_pipeline).to_list(None)
+    categories = await warehouse_item_collection.aggregate(category_pipeline).to_list(None)
     category_names = [category["_id"] for category in categories]
 
     return {
@@ -1036,7 +1037,7 @@ async def get_all_data(
 #         categories.add(category)
 
 #         # Assigning direct item attributes
-#         item_attributes = ["branchwiseItemId", "itemName", "category", "subcategory", "itemGroup",
+#         item_attributes = ["warehouseItemId", "itemName", "category", "subcategory", "itemGroup",
 #                            "ItemType", "item_Uom", "tax", "item_Defaultprice", "description", "hsnCode",
 #                            "status", "create_item_date", "updated_item_date", "netPrice", "itemid"]
 #         item_info = {k: cleaned_item[k] for k in item_attributes if k in cleaned_item}
@@ -1143,7 +1144,7 @@ async def get_all_data(
 #         categories.add(category)
 
 #         # Assigning direct item attributes
-#         item_attributes = ["branchwiseItemId", "itemName", "category", "subcategory", "itemGroup",
+#         item_attributes = ["warehouseItemId", "itemName", "category", "subcategory", "itemGroup",
 #                            "ItemType", "item_Uom", "tax", "item_Defaultprice", "description", "hsnCode",
 #                            "status", "create_item_date", "updated_item_date", "netPrice", "itemid"]
 #         item_info = {k: cleaned_item[k] for k in item_attributes if k in cleaned_item}
@@ -1261,7 +1262,7 @@ PROMOTIONAL_OFFERS_COLLECTION_NAME = "promotionaloffer"
 #         categories.add(category)
 
 #         # Assigning direct item attributes
-#         item_attributes = ["branchwiseItemId", "itemName", "category", "subcategory", "itemGroup",
+#         item_attributes = ["warehouseItemId", "itemName", "category", "subcategory", "itemGroup",
 #                            "ItemType", "item_Uom", "tax", "item_Defaultprice", "description", "hsnCode",
 #                            "status", "create_item_date", "updated_item_date", "netPrice", "itemid"]
 #         item_info = {k: cleaned_item[k] for k in item_attributes if k in cleaned_item}
@@ -1385,7 +1386,7 @@ PROMOTIONAL_OFFERS_COLLECTION_NAME = "promotionaloffer"
 #             result[item_name] = {"item": {}, "variance": {}}
 
 #         # Assign item attributes
-#         item_attributes = ["branchwiseItemId", "itemName", "category", "subcategory", "itemGroup",
+#         item_attributes = ["warehouseItemId", "itemName", "category", "subcategory", "itemGroup",
 #                            "ItemType", "item_Uom", "tax", "item_Defaultprice", "description", "hsnCode",
 #                            "status", "create_item_date", "updated_item_date", "netPrice", "itemid"]
 #         result[item_name]["item"] = {k: cleaned_item[k] for k in item_attributes if k in cleaned_item}
@@ -1485,7 +1486,7 @@ PROMOTIONAL_OFFERS_COLLECTION_NAME = "promotionaloffer"
 #             result[item_name] = {"item": {}, "variance": {}}
 
 #         # Assign item attributes
-#         item_attributes = ["branchwiseItemId", "itemName", "category", "subcategory", "itemGroup",
+#         item_attributes = ["warehouseItemId", "itemName", "category", "subcategory", "itemGroup",
 #                            "ItemType", "item_Uom", "tax", "item_Defaultprice", "description", "hsnCode",
 #                            "status", "create_item_date", "updated_item_date", "netPrice", "itemid"]
 #         result[item_name]["item"] = {k: cleaned_item[k] for k in item_attributes if k in cleaned_item}
@@ -1595,7 +1596,7 @@ PROMOTIONAL_OFFERS_COLLECTION_NAME = "promotionaloffer"
 #             result[item_name] = {"item": {}, "variance": {}}
 
 #         # Assign item attributes
-#         item_attributes = ["branchwiseItemId", "itemName", "category", "subcategory", "itemGroup",
+#         item_attributes = ["warehouseItemId", "itemName", "category", "subcategory", "itemGroup",
 #                            "ItemType", "item_Uom", "tax", "item_Defaultprice", "description", "hsnCode",
 #                            "status", "create_item_date", "updated_item_date", "netPrice", "itemid"]
 #         result[item_name]["item"] = {k: cleaned_item[k] for k in item_attributes if k in cleaned_item}
@@ -1713,7 +1714,7 @@ PROMOTIONAL_OFFERS_COLLECTION_NAME = "promotionaloffer"
 #         category = cleaned_item.get("category", "Uncategorized")
 #         categories.add(category)
 #         # Assign item attributes
-#         item_attributes = ["branchwiseItemId", "itemName", "category", "subcategory", "itemGroup",
+#         item_attributes = ["warehouseItemId", "itemName", "category", "subcategory", "itemGroup",
 #                            "ItemType", "item_Uom", "tax", "item_Defaultprice", "description", "hsnCode",
 #                            "status", "create_item_date", "updated_item_date", "netPrice", "itemid"]
 #         result[item_name]["item"] = {k: cleaned_item[k] for k in item_attributes if k in cleaned_item}
@@ -1854,7 +1855,7 @@ PROMOTIONAL_OFFERS_COLLECTION_NAME = "promotionaloffer"
 #             categories.add(category)
 
 #             # Assign item attributes
-#             item_attributes = ["branchwiseItemId", "itemName", "category", "subCategory", "itemGroup",
+#             item_attributes = ["warehouseItemId", "itemName", "category", "subCategory", "itemGroup",
 #                                "ItemType", "item_Uom", "tax", "item_Defaultprice", "description", "hsnCode",
 #                                "status", "create_item_date", "updated_item_date", "netPrice", "itemid"]
 #             result[item_name]["item"] = {k: cleaned_item[k] for k in item_attributes if k in cleaned_item}
@@ -2013,7 +2014,7 @@ PROMOTIONAL_OFFERS_COLLECTION_NAME = "promotionaloffer"
 
 #             # Assign item attributes
 #             item_attributes = [
-#                 "branchwiseItemId", "itemName", "category", "subCategory", "itemGroup",
+#                 "warehouseItemId", "itemName", "category", "subCategory", "itemGroup",
 #                 "ItemType", "item_Uom", "tax", "item_Defaultprice", "description", "hsnCode",
 #                 "status", "create_item_date", "updated_item_date", "netPrice", "itemid"
 #             ]
@@ -2137,23 +2138,19 @@ PROMOTIONAL_OFFERS_COLLECTION_NAME = "promotionaloffer"
 
 @router.get("/")
 async def get_branchwise_promotional_items(
-    branch_alias: str = Query(None, alias="branch_alias"),
     order_type: str = Query(None, alias="order_type")
 ):
     try:
-        # Fetch promotional offers
-        promotional_offers_collection = get_collection(PROMOTIONAL_OFFERS_COLLECTION_NAME)
-        promotional_offers = await promotional_offers_collection.find({}).to_list(length=None)
-
         # Fetch branchwise items
-        cursor = branchwise_items_collection.find({}, {'_id': False})
+        cursor = warehouse_item_collection.find({}, {'_id': False})
         items = await cursor.to_list(length=None)
         
-        # Synchronously fetch order types from MongoDB using the helper function.
-        # (Note: This uses synchronous PyMongo, so in a production async app you might want
-        # to use an async driver.)
+        # Synchronously fetch order types from MongoDB.
         orderType_collection = get_orderType_collection()
         order_types = list(orderType_collection.find({}, {'_id': False}))
+        
+        # Fetch valid warehouse alias names
+        branch_alias_names = await fetch_branch_alias_names_locally()
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -2174,15 +2171,17 @@ async def get_branchwise_promotional_items(
                 for k, v in item.items()
             }
 
+            # Create entry for item if not already present
             if item_name not in result:
                 result[item_name] = {"item": {}, "variance": {}}
 
+            # Use cleaned category (or default)
             category = cleaned_item.get("category", "Uncategorized")
             categories.add(category)
 
             # Assign item attributes
             item_attributes = [
-                "branchwiseItemId", "itemName", "category", "subCategory", "itemGroup",
+                "warehouseItemId", "itemName", "category", "subCategory", "itemGroup",
                 "ItemType", "item_Uom", "tax", "item_Defaultprice", "description", "hsnCode",
                 "status", "create_item_date", "updated_item_date", "netPrice", "itemid"
             ]
@@ -2191,7 +2190,6 @@ async def get_branchwise_promotional_items(
             }
 
             # Process variance attributes
-            variance_name = cleaned_item.get("varianceName", "Default")
             variance_attributes = [
                 "varianceid", "varianceitemCode", "varianceName", "variance_Defaultprice",
                 "variance_Uom", "varianceStatus", "qrCode", "selfLife", "reorderLevel"
@@ -2200,7 +2198,7 @@ async def get_branchwise_promotional_items(
                 k: cleaned_item[k] for k in variance_attributes if k in cleaned_item
             }
 
-            # Process branchwise info with branch-suffixed keys
+            # Process branchwise info from keys and filter using warehouse alias names
             branchwise_info = {}
             for key, value in cleaned_item.items():
                 if key.startswith(("Price_", "EnablePrice_", "systemStock_", "physicalStock_")):
@@ -2208,100 +2206,18 @@ async def get_branchwise_promotional_items(
                     if len(parts) < 2:
                         continue
                     attribute = parts[0]  # e.g., "Price"
-                    branch = parts[1]     # e.g., "AR"
-                    if branch_alias and branch != branch_alias:
+                    branch = parts[1]     # e.g., "WH1", "AR", etc.
+                    # Only include branch if it exists in the warehouse alias names
+                    if branch not in branch_alias_names:
                         continue
-                    new_key = f"{attribute}_{branch}"  # e.g., "Price_AR"
+                    new_key = f"{attribute}_{branch}"
                     branchwise_info.setdefault(branch, {})[new_key] = value
 
-            # Set defaults for freeoffer, discountOffer, and finalPrice (using branch-specific keys)
+            # Set defaults for branch-specific keys
             for branch in branchwise_info.keys():
-                branchwise_info[branch][f"freeoffer_{branch}"] = "false"
-                branchwise_info[branch][f"discountOffer_{branch}"] = "false"
                 branchwise_info[branch][f"finalPrice_{branch}"] = branchwise_info[branch].get(f"Price_{branch}", 0)
 
-            # Process promotional offers for each branch
-            for branch, branch_data in branchwise_info.items():
-                branch_price = branch_data.get(f"Price_{branch}", 0)
-                for offer in promotional_offers:
-                    if branch_alias and branch not in offer.get("locations", []):
-                        continue
-
-                    # Match criteria for item, variance, category, or subcategory
-                    if (
-                        item_name in offer.get("itemName", []) or
-                        variance_name in offer.get("varianceName", []) or
-                        category in offer.get("category", []) or
-                        subcategory in offer.get("subcategory", [])
-                    ):
-                        # Update branch_data with promotional offer fields (using branch-suffixed keys)
-                        branch_data.update({
-                            f"appTypes_{branch}": offer.get("appTypes", []),
-                            f"offerName_{branch}": offer.get("offerName"),
-                            f"locations_{branch}": offer.get("locations", []),
-                            f"startDate_{branch}": offer.get("startDate"),
-                            f"endDate_{branch}": offer.get("endDate"),
-                            f"fromTime_{branch}": offer.get("fromTime"),
-                            f"toTime_{branch}": offer.get("toTime"),
-                            f"weekdays_{branch}": offer.get("weekdays", []),
-                            f"selectionType_{branch}": offer.get("selectionType"),
-                            f"itemName_{branch}": offer.get("itemName", []),
-                            f"varianceName_{branch}": offer.get("varianceName", []),
-                            f"category_{branch}": offer.get("category", []),
-                            f"subcategory_{branch}": offer.get("subcategory", []),
-                            f"configuration_{branch}": offer.get("configuration"),
-                            f"discountValue_{branch}": offer.get("discountValue"),
-                            f"orderValue_{branch}": offer.get("orderValue"),
-                            f"orderDiscountValue_{branch}": offer.get("orderDiscountValue"),
-                            f"customers_{branch}": offer.get("customers", []),
-                            f"image_{branch}": offer.get("image"),
-                            f"selectionType1_{branch}": offer.get("selectionType1"),
-                            f"selectionType2_{branch}": offer.get("selectionType2"),
-                            f"itemName1_{branch}": offer.get("itemName1", []),
-                            f"itemName2_{branch}": offer.get("itemName2", []),
-                            f"varianceName1_{branch}": offer.get("varianceName1", []),
-                            f"varianceName2_{branch}": offer.get("varianceName2", []),
-                            f"category1_{branch}": offer.get("category1", []),
-                            f"category2_{branch}": offer.get("category2", []),
-                            f"subcategory1_{branch}": offer.get("subcategory1", []),
-                            f"subcategory2_{branch}": offer.get("subcategory2", []),
-                            f"buy_{branch}": offer.get("buy", 0),
-                            f"get_{branch}": offer.get("get", 0),
-                            f"offerType_{branch}": offer.get("offerType"),
-                            f"status_{branch}": offer.get("status"),
-                            f"freeoffer_{branch}": offer.get("freeoffer", "false"),
-                            f"discountOffer_{branch}": offer.get("discountOffer", "false")
-                        })
-
-                        # If a discount offer applies, update finalPrice accordingly
-                        if offer.get("discountOffer", "false") == "true":
-                            try:
-                                discount_value = float(offer.get("discountValue", 0) or 0)
-                            except ValueError:
-                                discount_value = 0
-                            final_price = int(round(branch_price - (branch_price * discount_value / 100)))
-                            branch_data[f"finalPrice_{branch}"] = str(final_price)
-
-            # ---------------------------
-            # Add orderType info per branch
-            # ---------------------------
-            # For each branch in this item, attach an "orderType" dictionary.
-            # For each order type (fetched from the orderType collection), we build a key
-            # such as "takeawayPrice_AR" and set its value (here using a default of 34).
-                        # ---------------------------
-            # Add orderType info per branch as a flat dictionary
-            # ---------------------------
-            # ---------------------------
-            # Add orderType info per branch as a flat dictionary
-            # ---------------------------
-            for branch, branch_data in branchwise_info.items():
-                orderType_info = {}
-                for order in order_types:
-                    ot_name = order.get("orderTypeName")  # e.g., "takeAway", "dineIn", "selfOrder"
-                    price_key = f"{ot_name}Price_{branch}"
-                    orderType_info[price_key] = ""  # assign your computed price or default value here
-                branch_data["orderType"] = orderType_info
-
+            # (Optional) Add orderType info per branch here if needed
 
             # Update the result for the current item with the processed branchwise info.
             result[item_name]["variance"].setdefault(variance_name, {}).update({
@@ -2310,7 +2226,7 @@ async def get_branchwise_promotional_items(
             })
 
         if not result:
-            raise HTTPException(status_code=404, detail="No items found for the given branch alias")
+            raise HTTPException(status_code=404, detail="No items found")
 
         return {
             "categories": list(categories),
@@ -2318,11 +2234,9 @@ async def get_branchwise_promotional_items(
         }
 
     finally:
-        # 🛑 Free up memory after processing
-        del items, promotional_offers, cleaned_item, branchwise_info, variance_info
-        gc.collect()  # Force garbage collection
-
-
+        # Perform garbage collection to free up memory
+        import gc
+        gc.collect()
 
 
 
@@ -2334,7 +2248,7 @@ async def get_all_branchwise_items(
 ):
     try:
         # Fetch branchwise items
-        cursor = branchwise_items_collection.find({}, {'_id': False})
+        cursor = warehouse_item_collection.find({}, {'_id': False})
         items = await cursor.to_list(length=None)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -2364,63 +2278,107 @@ async def get_all_branchwise_items(
     
 
     
-@router.patch("/update_physicalstock/")
-async def update_physical_stock(
+# @router.patch("/update_physicalstock/")
+# async def update_physical_stock(
+#     variance_names: list[str] = Query(..., description="List of variance names of the items to update"),
+#     branch_aliases: list[str] = Query(..., description="List of branch aliases like AR, SB"),
+#     new_physical_stocks: list[int] = Body(..., description="List of new physical stock counts to update")
+# ):
+#     if len(variance_names) != len(branch_aliases) or len(variance_names) != len(new_physical_stocks):
+#         raise HTTPException(status_code=400, detail="The lengths of variance names, branch aliases, and physical stocks must match")
+
+#     update_responses = []
+#     for variance_name, branch_alias, new_physical_stock in zip(variance_names, branch_aliases, new_physical_stocks):
+#         # Update the physical stock
+#         update_result = await warehouse_item_collection.update_one(
+#             {"varianceName": variance_name},
+#             {
+#                 "$set": {f"physicalStock_{branch_alias}": new_physical_stock}
+#             }
+#         )
+        
+#         if update_result.modified_count == 0:
+#             update_responses.append({"varianceName": variance_name, "branchAlias": branch_alias, "error": "Item not found or no update needed"})
+#             continue
+        
+#         # Optionally update the system stock to match the new physical stock
+#         await warehouse_item_collection.update_one(
+#             {"varianceName": variance_name},
+#             {
+#                 "$set": {f"systemStock_{branch_alias}": new_physical_stock}
+#             }   
+#         )
+        
+#         # Retrieve the updated details to confirm the changes
+#         item = await warehouse_item_collection.find_one(
+#             {"varianceName": variance_name},
+#             {'_id': False}
+#         )
+
+#         # Prepare and send the updated stock details
+#         updated_stock_details = {
+#             "varianceName": variance_name,
+#             "branchAlias": branch_alias,
+#             "updatedPhysicalStock": item.get(f"physicalStock_{branch_alias}"),
+#             "updatedSystemStock": item.get(f"systemStock_{branch_alias}")
+#         }
+#         update_responses.append(updated_stock_details)
+
+#     return update_responses
+    
+ 
+@router.patch("/update_systemstock/")
+async def update_system_stock(
     variance_names: list[str] = Query(..., description="List of variance names of the items to update"),
-    branch_aliases: list[str] = Query(..., description="List of branch aliases like AR, SB"),
-    new_physical_stocks: list[int] = Body(..., description="List of new physical stock counts to update")
+    branch_aliases: list[str] = Query(..., description="List of branch aliases like WH1"),
+    new_system_stocks: list[int] = Body(..., description="List of new system stock counts to update")
 ):
-    if len(variance_names) != len(branch_aliases) or len(variance_names) != len(new_physical_stocks):
-        raise HTTPException(status_code=400, detail="The lengths of variance names, branch aliases, and physical stocks must match")
+    if len(variance_names) != len(branch_aliases) or len(variance_names) != len(new_system_stocks):
+        raise HTTPException(
+            status_code=400,
+            detail="The lengths of variance names, branch aliases, and system stocks must match"
+        )
 
     update_responses = []
-    for variance_name, branch_alias, new_physical_stock in zip(variance_names, branch_aliases, new_physical_stocks):
-        # Update the physical stock
-        update_result = await branchwise_items_collection.update_one(
+    for variance_name, branch_alias, new_system_stock in zip(variance_names, branch_aliases, new_system_stocks):
+        # Update only the system stock field for the specified branch
+        update_result = await warehouse_item_collection.update_one(
             {"varianceName": variance_name},
             {
-                "$set": {f"physicalStock_{branch_alias}": new_physical_stock}
+                "$set": {f"systemStock_{branch_alias}": new_system_stock}
             }
         )
         
         if update_result.modified_count == 0:
-            update_responses.append({"varianceName": variance_name, "branchAlias": branch_alias, "error": "Item not found or no update needed"})
+            update_responses.append({
+                "varianceName": variance_name,
+                "branchAlias": branch_alias,
+                "error": "Item not found or no update needed"
+            })
             continue
         
-        # Optionally update the system stock to match the new physical stock
-        await branchwise_items_collection.update_one(
-            {"varianceName": variance_name},
-            {
-                "$set": {f"systemStock_{branch_alias}": new_physical_stock}
-            }   
-        )
-        
         # Retrieve the updated details to confirm the changes
-        item = await branchwise_items_collection.find_one(
+        item = await warehouse_item_collection.find_one(
             {"varianceName": variance_name},
             {'_id': False}
         )
 
-        # Prepare and send the updated stock details
         updated_stock_details = {
             "varianceName": variance_name,
             "branchAlias": branch_alias,
-            "updatedPhysicalStock": item.get(f"physicalStock_{branch_alias}"),
             "updatedSystemStock": item.get(f"systemStock_{branch_alias}")
         }
         update_responses.append(updated_stock_details)
 
     return update_responses
-    
- 
- 
+
 @router.get("/getsystemstock/")
 async def get_system_stock(
     variance_name: str = Query(..., description="Variance name of the item"),
-    branch_alias: str = Query(..., description="Branch alias like AR, SB")
+    branch_alias: str = Query(..., description="Branch alias like WH1")
 ):
     # Find the item based on the variance name
-    item = await branchwise_items_collection.find_one(
+    item = await warehouse_item_collection.find_one(
         {"varianceName": variance_name},
         {'_id': False, f"systemStock_{branch_alias}": 1, "varianceName": 1}
     )
@@ -2558,7 +2516,7 @@ async def get_system_stock(
 #         # Base item transformation
 #         transformed_item = {
 #             "item": {
-#                 "branchwiseItemId": str(item.get("_id")),
+#                 "warehouseItemId": str(item.get("_id")),
 #                 "itemName": item.get("itemName"),
 #                 "category": item.get("category"),
 #                 "subcategory": item.get("subCategory"),
@@ -2790,7 +2748,7 @@ async def get_system_stock(
 #         if item_name not in results:
 #             results[item_name] = {
 #                 "item": {
-#                     "branchwiseItemId": item_id,
+#                     "warehouseItemId": item_id,
 #                     "itemId": linked_item_id,
 #                     **item_details,
 #                 },

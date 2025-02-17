@@ -1,250 +1,217 @@
-# from fastapi import APIRouter, HTTPException, UploadFile, File
-# from fastapi.responses import StreamingResponse
-# from pymongo import MongoClient
-# from ecommersofferslider.utils import get_webofferslider_collection
-# import io
-# from bson import ObjectId  # Import for handling ObjectId
-
-# # MongoDB collection
-# banner_collection = get_webofferslider_collection()
-
-# router = APIRouter()
-
-# # Route for uploading a single image (MongoDB will generate _id)
-# @router.post("/upload")
-# async def upload_photo(file: UploadFile = File(...)):
-#     try:
-#         # Read the file
-#         contents = await file.read()
-
-#         # Insert a new document with auto-generated _id
-#         result = banner_collection.insert_one({
-#             "filename": file.filename,
-#             "content": contents
-#         })
-
-#         return {"custom_id": str(result.inserted_id), "file": file.filename}
-#     except Exception as e:
-#         raise HTTPException(status_code=500, detail=str(e))
-
-# # Route to view a specific photo by its custom ID
-# @router.get("/view/{custom_id}")
-# async def get_photo(custom_id: str):
-#     try:
-#         # Convert custom_id (string) to ObjectId
-#         object_id = ObjectId(custom_id)
-        
-#         # Find the document with the given custom ID
-#         banner = banner_collection.find_one({"_id": object_id})
-        
-#         if not banner:
-#             raise HTTPException(status_code=404, detail="Custom ID not found")
-        
-#         # Return the photo content as a StreamingResponse
-#         return StreamingResponse(io.BytesIO(banner["content"]), media_type="image/jpeg")
-#     except Exception as e:
-#         raise HTTPException(status_code=500, detail=str(e))
-
-# # Route to update a specific photo by its custom ID
-# @router.patch("/update/{custom_id}")
-# async def update_photo(custom_id: str, file: UploadFile = File(...)):
-#     try:
-#         # Convert custom_id (string) to ObjectId
-#         object_id = ObjectId(custom_id)
-        
-#         # Find the document with the given custom ID
-#         banner = banner_collection.find_one({"_id": object_id})
-        
-#         if not banner:
-#             raise HTTPException(status_code=404, detail="Custom ID not found")
-
-#         # Read the new content for the photo
-#         contents = await file.read()
-
-#         # Update the document with the new photo content
-#         banner_collection.update_one(
-#             {"_id": object_id},
-#             {"$set": {"filename": file.filename, "content": contents}}
-#         )
-
-#         return {"message": "Photo updated successfully"}
-#     except Exception as e:
-#         raise HTTPException(status_code=500, detail=str(e))
-
-# # Route to delete a specific photo by its custom ID
-# @router.delete("/delete/{custom_id}")
-# async def delete_photo(custom_id: str):
-#     try:
-#         # Convert custom_id (string) to ObjectId
-#         object_id = ObjectId(custom_id)
-        
-#         # Find the document with the given custom ID
-#         banner = banner_collection.find_one({"_id": object_id})
-        
-#         if not banner:
-#             raise HTTPException(status_code=404, detail="Custom ID not found")
-
-#         # Delete the document from the collection
-#         banner_collection.delete_one({"_id": object_id})
-
-#         return {"message": "Photo deleted successfully"}
-#     except Exception as e:
-#         raise HTTPException(status_code=500, detail=str(e))
-
-# # Route to get all photos (with custom_id and filename)
-# @router.get("/all")
-# async def get_all_photos():
-#     try:
-#         # Fetch all images in the collection, only returning _id and filename fields
-#         banners = banner_collection.find({}, {"_id": 1, "filename": 1})
-        
-#         # Convert MongoDB documents to a list of dicts with custom_id and filename
-#         images = [{"custom_id": str(banner["_id"]), "filename": banner["filename"]} for banner in banners]
-
-#         if not images:
-#             raise HTTPException(status_code=404, detail="No images found")
-        
-#         return images
-#     except Exception as e:
-#         raise HTTPException(status_code=500, detail=str(e))
-
 from fastapi import APIRouter, HTTPException, UploadFile, File
-from fastapi.responses import FileResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 from pymongo import MongoClient
-from ecommersofferslider.utils import get_webofferslider_collection, get_public_url
+from ftplib import FTP, error_perm
+from webofferslider.utils import get_webofferslider_collection
+import io
 from bson import ObjectId
 from PIL import Image
 import os
-import io
+import uuid
 
-# Define directories
-UPLOAD_DIR = "/var/www/vhosts/yenerp.com/httpdocs/share/upload/images"
-COMPRESSED_DIR = "/var/www/vhosts/yenerp.com/httpdocs/share/upload/compressed_images"
+# 🔹 FTP Credentials
+FTP_HOST = "194.233.78.90"
+FTP_USER = "yenerp.com_thys677l7kc"
+FTP_PASSWORD = "PUTndhivxi6x94^%"
+FTP_UPLOAD_DIR = "/httpdocs/share/upload/ecommerce/offerslider"
+BASE_URL = "https://yenerp.com/share/upload"
 
-# Ensure directories exist
-os.makedirs(UPLOAD_DIR, exist_ok=True)
-os.makedirs(COMPRESSED_DIR, exist_ok=True)
+# 🔹 Local temporary storage
+LOCAL_UPLOAD_FOLDER = "./temp_uploads"
+os.makedirs(LOCAL_UPLOAD_FOLDER, exist_ok=True)
 
-# MongoDB collection
-banner_collection = get_webofferslider_collection()
+# 🔹 MongoDB connection
+client = MongoClient("mongodb://admin:YenE580nOOUE6cDhQERP@194.233.78.90:27017/admin?appName=mongosh+2.1.1&authSource=admin&authMechanism=SCRAM-SHA-256&replicaSet=yenerp-cluster")
+db = client["reactfluttertest"]
+banner_collection = db["bannersphoto"]
 
-# API Router
 router = APIRouter()
 
-def compress_image(image_bytes: bytes, output_path: str, quality: int = 50):
-    """Compress and save image."""
-    try:
-        image = Image.open(io.BytesIO(image_bytes))
-        image = image.convert("RGB")  # Convert to RGB (removes transparency issues)
-        image.save(output_path, "JPEG", quality=quality)
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error compressing image: {str(e)}")
+# 🔹 Image Compression Function
+def compress_image(image_bytes: bytes, max_size: int = 800) -> bytes:
+    """Compresses an image, resizes it, and converts to WebP format."""
+    image = Image.open(io.BytesIO(image_bytes))
+    image = image.convert("RGB")  # Convert to RGB for compatibility
 
-# Route for uploading and compressing an image
+    # Resize if necessary
+    width, height = image.size
+    if width > max_size or height > max_size:
+        image.thumbnail((max_size, max_size))
+
+    # Convert to WebP and compress
+    compressed_io = io.BytesIO()
+    image.save(compressed_io, format="WebP", quality=70)  # WebP for better compression
+    return compressed_io.getvalue()
+
+# 🔹 FTP Upload Function
+def upload_to_ftp(file_path: str, remote_filename: str) -> str:
+    """Uploads a file to the FTP server and returns the URL."""
+    try:
+        ftp = FTP()
+        ftp.set_pasv(True)
+        ftp.connect(FTP_HOST, 21, timeout=10)
+        ftp.login(FTP_USER, FTP_PASSWORD)
+
+        # Ensure directory exists
+        folders = FTP_UPLOAD_DIR.strip("/").split("/")
+        for folder in folders:
+            try:
+                ftp.cwd(folder)
+            except error_perm:
+                ftp.mkd(folder)
+                ftp.cwd(folder)
+
+        # Upload file
+        with open(file_path, "rb") as f:
+            ftp.storbinary(f"STOR {remote_filename}", f)
+        ftp.quit()
+
+        return f"{BASE_URL}/{remote_filename}"  # Return accessible image URL
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"FTP upload failed: {str(e)}")
+
+# 🔹 Upload Photo Endpoint
 @router.post("/upload")
 async def upload_photo(file: UploadFile = File(...)):
     try:
-        # Generate file paths
-        original_path = os.path.join(UPLOAD_DIR, file.filename)
-        compressed_path = os.path.join(COMPRESSED_DIR, file.filename)
-
-        # Read file contents
+        # Read and compress image
         contents = await file.read()
+        compressed_contents = compress_image(contents)
 
-        # Compress and save the image
-        compress_image(contents, compressed_path, quality=50)
+        # Save locally before FTP upload
+        temp_filename = f"{uuid.uuid4().hex}.webp"
+        temp_path = os.path.join(LOCAL_UPLOAD_FOLDER, temp_filename)
+        with open(temp_path, "wb") as f:
+            f.write(compressed_contents)
 
-        # Save only the file path in MongoDB
+        # Upload to FTP
+        image_url = upload_to_ftp(temp_path, temp_filename)
+
+        # Store image URL in MongoDB
         result = banner_collection.insert_one({
             "filename": file.filename,
-            "file_path": compressed_path
+            "url": image_url
         })
 
-        return {
-            "custom_id": str(result.inserted_id),
-            "file": file.filename,
-            "url": get_public_url(compressed_path)  # Generate public URL
-        }
+        return {"custom_id": str(result.inserted_id), "url": image_url}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-# Route to view an image
+# 🔹 Get All Photos Endpoint
+@router.get("/all")
+async def get_all_photos():
+    try:
+        banners = banner_collection.find({}, {"_id": 1, "filename": 1, "url": 1})
+        images = [{"custom_id": str(banner["_id"]), "filename": banner["filename"], "url": banner["url"]} for banner in banners]
+        if not images:
+            raise HTTPException(status_code=404, detail="No images found")
+        return images
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    
+
 @router.get("/view/{custom_id}")
 async def get_photo(custom_id: str):
     try:
         object_id = ObjectId(custom_id)
         banner = banner_collection.find_one({"_id": object_id})
-
         if not banner:
             raise HTTPException(status_code=404, detail="Custom ID not found")
 
-        return FileResponse(banner["file_path"], media_type="image/jpeg")
+        image_url = banner["url"]
+        filename = image_url.split("/")[-1]  # Extract the filename from URL
+
+        # Connect to FTP and download the image
+        ftp = FTP()
+        ftp.set_pasv(True)
+        ftp.connect(FTP_HOST, 21, timeout=10)
+        ftp.login(FTP_USER, FTP_PASSWORD)
+        ftp.cwd(FTP_UPLOAD_DIR)
+
+        image_io = io.BytesIO()
+        ftp.retrbinary(f"RETR {filename}", image_io.write)
+        ftp.quit()
+
+        image_io.seek(0)
+        return StreamingResponse(image_io, media_type="image/webp")  # Adjust format as needed
+
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-# Route to update a specific photo by its custom ID
-@router.patch("/update/{custom_id}")
-async def update_photo(custom_id: str, file: UploadFile = File(...)):
-    try:
-        object_id = ObjectId(custom_id)
-        banner = banner_collection.find_one({"_id": object_id})
 
-        if not banner:
-            raise HTTPException(status_code=404, detail="Custom ID not found")
-
-        # Generate new file path
-        compressed_path = os.path.join(COMPRESSED_DIR, file.filename)
-
-        # Read and compress the new image
-        contents = await file.read()
-        compress_image(contents, compressed_path, quality=50)
-
-        # Update MongoDB document with new file path
-        banner_collection.update_one(
-            {"_id": object_id},
-            {"$set": {"filename": file.filename, "file_path": compressed_path}}
-        )
-
-        return {"message": "Photo updated successfully", "url": get_public_url(compressed_path)}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-# Route to delete a specific photo by its custom ID
+# 🔹 Delete Photo Endpoint
 @router.delete("/delete/{custom_id}")
 async def delete_photo(custom_id: str):
     try:
         object_id = ObjectId(custom_id)
         banner = banner_collection.find_one({"_id": object_id})
-
         if not banner:
             raise HTTPException(status_code=404, detail="Custom ID not found")
 
-        # Delete the image file from the server
-        if os.path.exists(banner["file_path"]):
-            os.remove(banner["file_path"])
+        # Get file name from URL
+        image_url = banner["url"]
+        filename = image_url.split("/")[-1]
 
-        # Remove entry from MongoDB
+        # Remove from FTP
+        try:
+            ftp = FTP()
+            ftp.set_pasv(True)
+            ftp.connect(FTP_HOST, 21, timeout=10)
+            ftp.login(FTP_USER, FTP_PASSWORD)
+            ftp.cwd(FTP_UPLOAD_DIR)
+            ftp.delete(filename)
+            ftp.quit()
+        except Exception as ftp_error:
+            raise HTTPException(status_code=500, detail=f"FTP delete failed: {str(ftp_error)}")
+
+        # Remove from MongoDB
         banner_collection.delete_one({"_id": object_id})
 
         return {"message": "Photo deleted successfully"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-# Route to get all photos
-@router.get("/all")
-async def get_all_photos():
+# 🔹 Update Photo Endpoint
+@router.patch("/update/{custom_id}")
+async def update_photo(custom_id: str, file: UploadFile = File(...)):
     try:
-        banners = banner_collection.find({}, {"_id": 1, "filename": 1, "file_path": 1})
+        object_id = ObjectId(custom_id)
+        banner = banner_collection.find_one({"_id": object_id})
+        if not banner:
+            raise HTTPException(status_code=404, detail="Custom ID not found")
 
-        images = [{
-            "custom_id": str(banner["_id"]),
-            "filename": banner["filename"],
-            "url": get_public_url(banner["file_path"])
-        } for banner in banners]
+        # Read and compress new image
+        contents = await file.read()
+        compressed_contents = compress_image(contents)
 
-        if not images:
-            raise HTTPException(status_code=404, detail="No images found")
+        # Save locally before FTP upload
+        new_filename = f"{uuid.uuid4().hex}.webp"
+        temp_path = os.path.join(LOCAL_UPLOAD_FOLDER, new_filename)
+        with open(temp_path, "wb") as f:
+            f.write(compressed_contents)
 
-        return images
+        # Upload new image to FTP
+        new_image_url = upload_to_ftp(temp_path, new_filename)
+
+        # Delete old image from FTP
+        old_filename = banner["url"].split("/")[-1]
+        try:
+            ftp = FTP()
+            ftp.set_pasv(True)
+            ftp.connect(FTP_HOST, 21, timeout=10)
+            ftp.login(FTP_USER, FTP_PASSWORD)
+            ftp.cwd(FTP_UPLOAD_DIR)
+            ftp.delete(old_filename)
+            ftp.quit()
+        except Exception as ftp_error:
+            raise HTTPException(status_code=500, detail=f"Failed to delete old FTP image: {str(ftp_error)}")
+
+        # Update document in MongoDB
+        banner_collection.update_one(
+            {"_id": object_id},
+            {"$set": {"filename": file.filename, "url": new_image_url}}
+        )
+
+        return {"message": "Photo updated successfully", "new_url": new_image_url}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
