@@ -177,7 +177,7 @@ async def create_indexes():
     except Exception as e:
         logger.error(f"Failed to create indexes: {e}")
 
-# A simple root endpoint
+# A simple root endpoint I CHANGED THE FILE
 @app.get("/")
 def read_root():
     return {"message": "YEN ERP"}
